@@ -384,7 +384,45 @@ func (p *Processor) GetFilterStats(policy *models.ConsumerPolicy) map[string]int
 func (p *Processor) GetScoringStats(policy *models.ConsumerPolicy) map[string]interface{} {
 	allProviders := p.providerStorage.GetAllProviders()
 	filteredProviders := p.FilterProviders(allProviders, policy)
-	return p.scoringSystem.GetScoringStats(filteredProviders, policy)
+
+	// Get basic statistics
+	scores := p.scoringSystem.RankProviders(filteredProviders, policy)
+
+	if len(scores) == 0 {
+		return map[string]interface{}{
+			"count": 0,
+			"avg":   0.0,
+			"min":   0.0,
+			"max":   0.0,
+		}
+	}
+
+	// Calculate statistics
+	var sum, min, max float64
+	min = scores[0].Score
+	max = scores[0].Score
+
+	for _, score := range scores {
+		sum += score.Score
+		if score.Score < min {
+			min = score.Score
+		}
+		if score.Score > max {
+			max = score.Score
+		}
+	}
+
+	avg := sum / float64(len(scores))
+
+	return map[string]interface{}{
+		"count":             len(scores),
+		"avg":               avg,
+		"min":               min,
+		"max":               max,
+		"range":             max - min,
+		"scoring_strategy":  p.scoringSystem.GetName(),
+		"available_scorers": p.scoringSystem.ListScorers(),
+	}
 }
 
 // ResetStats resets all statistics
@@ -403,7 +441,7 @@ func (p *Processor) ResetStats() {
 		p.cache.Clear()
 	}
 
-	p.scoringSystem.ResetNormalization()
+	// No need to reset normalization in the new interface-based system
 }
 
 // ValidateConfiguration validates the processor configuration
@@ -436,7 +474,51 @@ func (p *Processor) ValidateConfiguration() error {
 
 // UpdateScoringWeights updates the scoring system weights
 func (p *Processor) UpdateScoringWeights(stake, location, feature float64) error {
-	return p.scoringSystem.SetWeights(stake, location, feature)
+	// Try to update individual scorer weights
+	if err := p.scoringSystem.SetScorerWeight("stake", stake); err != nil {
+		return fmt.Errorf("failed to set stake weight: %w", err)
+	}
+	if err := p.scoringSystem.SetScorerWeight("location", location); err != nil {
+		return fmt.Errorf("failed to set location weight: %w", err)
+	}
+	if err := p.scoringSystem.SetScorerWeight("features", feature); err != nil {
+		return fmt.Errorf("failed to set feature weight: %w", err)
+	}
+	return nil
+}
+
+// GetScorerWeights returns the current scorer weights
+func (p *Processor) GetScorerWeights() map[string]float64 {
+	weights := make(map[string]float64)
+
+	scorers := p.scoringSystem.ListScorers()
+	for _, scorer := range scorers {
+		if weight, err := p.scoringSystem.GetScorerWeight(scorer); err == nil {
+			weights[scorer] = weight
+		}
+	}
+
+	return weights
+}
+
+// AddScorer adds a new scorer to the scoring system
+func (p *Processor) AddScorer(name string, scorer interface{}) error {
+	return p.scoringSystem.AddScorer(name, scorer)
+}
+
+// RemoveScorer removes a scorer from the scoring system
+func (p *Processor) RemoveScorer(name string) error {
+	return p.scoringSystem.RemoveScorer(name)
+}
+
+// GetScoringStrategy returns information about the current scoring strategy
+func (p *Processor) GetScoringStrategy() map[string]interface{} {
+	return map[string]interface{}{
+		"name":        p.scoringSystem.GetName(),
+		"description": p.scoringSystem.GetDescription(),
+		"scorers":     p.scoringSystem.ListScorers(),
+		"weights":     p.GetScorerWeights(),
+	}
 }
 
 // GetCache returns the processor's cache (for testing/debugging)
