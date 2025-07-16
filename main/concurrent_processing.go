@@ -14,10 +14,9 @@ type ConcurrentPairingSystem struct {
 	pairingSystem   *DefaultPairingSystem
 	queueManager    *QueueManager
 
-	// Concurrency control
+	// Worker management - simplified
 	maxWorkers int
 	workers    []*PairingWorker
-	workerPool chan *PairingWorker
 
 	// System state
 	mu      sync.RWMutex
@@ -43,6 +42,13 @@ type PairingWorker struct {
 	processed     int64
 	errors        int64
 	mu            sync.RWMutex
+
+	// Worker control
+	ctx         context.Context
+	cancel      context.CancelFunc
+	queue       *PolicyQueue
+	resultsChan chan *ProcessorResult
+	running     bool
 }
 
 // NewConcurrentPairingSystem creates a new concurrent pairing system
@@ -59,7 +65,6 @@ func NewConcurrentPairingSystem(providerStorage *ProviderStorage, maxWorkers int
 		queueManager:    NewQueueManager(queueCapacity),
 		maxWorkers:      maxWorkers,
 		workers:         make([]*PairingWorker, 0, maxWorkers),
-		workerPool:      make(chan *PairingWorker, maxWorkers),
 		ctx:             ctx,
 		cancel:          cancel,
 		resultsChan:     make(chan *ProcessorResult, 1000),
@@ -68,10 +73,77 @@ func NewConcurrentPairingSystem(providerStorage *ProviderStorage, maxWorkers int
 }
 
 // NewPairingWorker creates a new pairing worker
-func NewPairingWorker(id int, pairingSystem *DefaultPairingSystem) *PairingWorker {
+func NewPairingWorker(id int, pairingSystem *DefaultPairingSystem, queue *PolicyQueue, resultsChan chan *ProcessorResult) *PairingWorker {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &PairingWorker{
 		id:            id,
 		pairingSystem: pairingSystem,
+		ctx:           ctx,
+		cancel:        cancel,
+		queue:         queue,
+		resultsChan:   resultsChan,
+	}
+}
+
+// Start starts the worker's processing loop
+func (pw *PairingWorker) Start() {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+
+	if pw.running {
+		return
+	}
+
+	pw.running = true
+	go pw.workLoop()
+}
+
+// Stop stops the worker
+func (pw *PairingWorker) Stop() {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+
+	if !pw.running {
+		return
+	}
+
+	pw.running = false
+	pw.cancel()
+}
+
+// workLoop is the main worker loop - this is the efficient pattern!
+func (pw *PairingWorker) workLoop() {
+	for {
+		select {
+		case <-pw.ctx.Done():
+			return
+		default:
+			// Worker directly pulls from queue when ready
+			policy, err := pw.queue.DequeueWithContext(pw.ctx)
+			if err != nil {
+				// If queue is empty or context cancelled, continue
+				if err == context.Canceled {
+					return
+				}
+				// Add small delay to prevent tight error loops
+				select {
+				case <-pw.ctx.Done():
+					return
+				case <-time.After(10 * time.Millisecond):
+					continue
+				}
+			}
+
+			// Process the policy immediately
+			result := pw.ProcessPolicy(policy)
+
+			// Send result to results channel
+			select {
+			case pw.resultsChan <- result:
+			case <-pw.ctx.Done():
+				return
+			}
+		}
 	}
 }
 
@@ -102,6 +174,13 @@ func (pw *PairingWorker) ProcessPolicy(policy *ConsumerPolicy) *ProcessorResult 
 	return result
 }
 
+// IsRunning returns whether the worker is running
+func (pw *PairingWorker) IsRunning() bool {
+	pw.mu.RLock()
+	defer pw.mu.RUnlock()
+	return pw.running
+}
+
 // GetStats returns worker statistics
 func (pw *PairingWorker) GetStats() map[string]interface{} {
 	pw.mu.RLock()
@@ -111,10 +190,11 @@ func (pw *PairingWorker) GetStats() map[string]interface{} {
 		"id":        pw.id,
 		"processed": pw.processed,
 		"errors":    pw.errors,
+		"running":   pw.running,
 	}
 }
 
-// Start starts the concurrent pairing system
+// Start starts the concurrent pairing system with worker-driven processing
 func (cps *ConcurrentPairingSystem) Start() error {
 	cps.mu.Lock()
 	defer cps.mu.Unlock()
@@ -123,23 +203,17 @@ func (cps *ConcurrentPairingSystem) Start() error {
 		return fmt.Errorf("system is already running")
 	}
 
-	// Initialize workers
+	// Create and start workers - they will directly pull from queue
 	for i := 0; i < cps.maxWorkers; i++ {
-		worker := NewPairingWorker(i, cps.pairingSystem)
+		worker := NewPairingWorker(i, cps.pairingSystem, cps.queueManager.GetQueue(), cps.resultsChan)
 		cps.workers = append(cps.workers, worker)
-		cps.workerPool <- worker
+		worker.Start() // Each worker starts its own processing loop
 	}
-
-	// Start processing goroutine
-	go cps.processLoop()
 
 	// Start results collector
 	go cps.collectResults()
 
-	// Add consumer with processing function
-	cps.queueManager.AddConsumer(cps.processPolicyFromQueue)
-
-	// Start queue system
+	// Start queue system (for producers)
 	cps.queueManager.StartAll()
 
 	cps.running = true
@@ -157,6 +231,11 @@ func (cps *ConcurrentPairingSystem) Stop() {
 		return
 	}
 
+	// Stop all workers
+	for _, worker := range cps.workers {
+		worker.Stop()
+	}
+
 	// Stop queue system
 	cps.queueManager.StopAll()
 
@@ -167,97 +246,6 @@ func (cps *ConcurrentPairingSystem) Stop() {
 	close(cps.resultsChan)
 
 	cps.running = false
-}
-
-// processLoop is the main processing loop
-func (cps *ConcurrentPairingSystem) processLoop() {
-	for {
-		select {
-		case <-cps.ctx.Done():
-			return
-		default:
-			// This loop handles the worker pool and processing
-			// The actual processing is handled by the queue consumer
-		}
-	}
-}
-
-// processPolicyFromQueue processes a policy from the queue
-func (cps *ConcurrentPairingSystem) processPolicyFromQueue(policy *ConsumerPolicy) error {
-	select {
-	case <-cps.ctx.Done():
-		return fmt.Errorf("system is shutting down")
-	case worker := <-cps.workerPool:
-		// Process policy in a goroutine
-		go func() {
-			defer func() {
-				// Return worker to pool
-				select {
-				case cps.workerPool <- worker:
-				case <-cps.ctx.Done():
-					// System is shutting down, don't block
-				}
-			}()
-
-			result := worker.ProcessPolicy(policy)
-
-			// Send result to results channel
-			select {
-			case cps.resultsChan <- result:
-			case <-cps.ctx.Done():
-				return
-			}
-
-			// Update statistics
-			cps.mu.Lock()
-			cps.totalProcessed++
-			if result.Error != nil {
-				cps.totalErrors++
-			}
-			cps.mu.Unlock()
-		}()
-
-		return nil
-	default:
-		// If no worker is immediately available, wait with timeout
-		select {
-		case <-cps.ctx.Done():
-			return fmt.Errorf("system is shutting down")
-		case worker := <-cps.workerPool:
-			// Process policy in a goroutine
-			go func() {
-				defer func() {
-					// Return worker to pool
-					select {
-					case cps.workerPool <- worker:
-					case <-cps.ctx.Done():
-						// System is shutting down, don't block
-					}
-				}()
-
-				result := worker.ProcessPolicy(policy)
-
-				// Send result to results channel
-				select {
-				case cps.resultsChan <- result:
-				case <-cps.ctx.Done():
-					return
-				}
-
-				// Update statistics
-				cps.mu.Lock()
-				cps.totalProcessed++
-				if result.Error != nil {
-					cps.totalErrors++
-				}
-				cps.mu.Unlock()
-			}()
-
-			return nil
-		case <-time.After(100 * time.Millisecond):
-			return fmt.Errorf("no workers available after timeout")
-		}
-	}
 }
 
 // collectResults collects processing results
@@ -275,6 +263,14 @@ func (cps *ConcurrentPairingSystem) collectResults() {
 			cps.resultsBufferMu.Lock()
 			cps.resultsBuffer = append(cps.resultsBuffer, result)
 			cps.resultsBufferMu.Unlock()
+
+			// Update statistics
+			cps.mu.Lock()
+			cps.totalProcessed++
+			if result.Error != nil {
+				cps.totalErrors++
+			}
+			cps.mu.Unlock()
 		}
 	}
 }
@@ -348,23 +344,32 @@ func (cps *ConcurrentPairingSystem) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"running":              cps.running,
-		"max_workers":          cps.maxWorkers,
-		"active_workers":       len(cps.workers),
-		"total_processed":      cps.totalProcessed,
-		"total_errors":         cps.totalErrors,
-		"uptime":               uptime.String(),
-		"results_buffer_size":  cps.GetResultsCount(),
-		"worker_stats":         workerStats,
-		"queue_stats":          cps.queueManager.GetStats(),
-		"pairing_system_stats": cps.pairingSystem.GetStats(),
-		"provider_count":       cps.providerStorage.GetProviderCount(),
+		"running":             cps.running,
+		"uptime":              uptime,
+		"total_processed":     cps.totalProcessed,
+		"total_errors":        cps.totalErrors,
+		"max_workers":         cps.maxWorkers,
+		"worker_stats":        workerStats,
+		"results_buffer_size": cps.GetResultsCount(),
+		"queue_stats":         cps.queueManager.GetStats(),
 	}
 }
 
 // GetQueueStats returns queue system statistics
 func (cps *ConcurrentPairingSystem) GetQueueStats() map[string]interface{} {
 	return cps.queueManager.GetStats()
+}
+
+// GetWorkerStats returns detailed worker statistics
+func (cps *ConcurrentPairingSystem) GetWorkerStats() []map[string]interface{} {
+	cps.mu.RLock()
+	defer cps.mu.RUnlock()
+
+	stats := make([]map[string]interface{}, len(cps.workers))
+	for i, worker := range cps.workers {
+		stats[i] = worker.GetStats()
+	}
+	return stats
 }
 
 // GetPairingSystemStats returns pairing system statistics

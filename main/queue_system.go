@@ -383,7 +383,6 @@ func (pc *PolicyConsumer) GetStats() map[string]interface{} {
 type QueueManager struct {
 	queue     *PolicyQueue
 	producers []*PolicyProducer
-	consumers []*PolicyConsumer
 	mu        sync.RWMutex
 }
 
@@ -392,7 +391,6 @@ func NewQueueManager(queueCapacity int) *QueueManager {
 	return &QueueManager{
 		queue:     NewPolicyQueue(queueCapacity),
 		producers: make([]*PolicyProducer, 0),
-		consumers: make([]*PolicyConsumer, 0),
 	}
 }
 
@@ -406,22 +404,12 @@ func (qm *QueueManager) AddProducer() *PolicyProducer {
 	return producer
 }
 
-// AddConsumer adds a new consumer to the manager
-func (qm *QueueManager) AddConsumer(processFn func(*ConsumerPolicy) error) *PolicyConsumer {
-	qm.mu.Lock()
-	defer qm.mu.Unlock()
-
-	consumer := NewPolicyConsumer(qm.queue, processFn)
-	qm.consumers = append(qm.consumers, consumer)
-	return consumer
-}
-
 // GetQueue returns the managed queue
 func (qm *QueueManager) GetQueue() *PolicyQueue {
 	return qm.queue
 }
 
-// StartAll starts all producers and consumers
+// StartAll starts all producers
 func (qm *QueueManager) StartAll() {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
@@ -429,24 +417,15 @@ func (qm *QueueManager) StartAll() {
 	for _, producer := range qm.producers {
 		producer.Start()
 	}
-
-	for _, consumer := range qm.consumers {
-		consumer.Start()
-		go consumer.ConsumeLoop()
-	}
 }
 
-// StopAll stops all producers and consumers
+// StopAll stops all producers
 func (qm *QueueManager) StopAll() {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
 	for _, producer := range qm.producers {
 		producer.Stop()
-	}
-
-	for _, consumer := range qm.consumers {
-		consumer.Stop()
 	}
 }
 
@@ -460,14 +439,8 @@ func (qm *QueueManager) GetStats() map[string]interface{} {
 		producerStats[i] = producer.GetStats()
 	}
 
-	consumerStats := make([]map[string]interface{}, len(qm.consumers))
-	for i, consumer := range qm.consumers {
-		consumerStats[i] = consumer.GetStats()
-	}
-
 	return map[string]interface{}{
 		"queue":     qm.queue.GetStats(),
 		"producers": producerStats,
-		"consumers": consumerStats,
 	}
 }

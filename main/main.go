@@ -218,6 +218,31 @@ func periodicStatsDisplay(queueSystem *ConcurrentPairingSystem, pairingSystem *D
 			fmt.Println("\n🌍 Provider Distribution:")
 			displayProviderDistribution(storage)
 
+			// Display worker statistics (NEW!)
+			fmt.Println("\n👷 Worker Statistics:")
+			workerStats := queueSystem.GetWorkerStats()
+			totalProcessed := int64(0)
+			totalErrors := int64(0)
+			activeWorkers := 0
+
+			for _, stats := range workerStats {
+				processed := stats["processed"].(int64)
+				errors := stats["errors"].(int64)
+				running := stats["running"].(bool)
+
+				totalProcessed += processed
+				totalErrors += errors
+				if running {
+					activeWorkers++
+				}
+
+				fmt.Printf("   Worker %d: %d processed, %d errors, running: %t\n",
+					stats["id"], processed, errors, running)
+			}
+
+			fmt.Printf("   📈 Total: %d processed, %d errors, %d/%d workers active\n",
+				totalProcessed, totalErrors, activeWorkers, len(workerStats))
+
 			// Display system stats
 			fmt.Println("\n⚙️  System Statistics:")
 			displaySystemStats(pairingSystem)
