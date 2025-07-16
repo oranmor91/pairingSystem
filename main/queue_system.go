@@ -355,8 +355,13 @@ func (pc *PolicyConsumer) ConsumeLoop() {
 			err := pc.ConsumePolicy()
 			if err != nil {
 				// Log error or handle appropriately
-				// For now, we'll just continue
-				continue
+				// Add a small delay to prevent tight error loops
+				select {
+				case <-pc.ctx.Done():
+					return
+				case <-time.After(10 * time.Millisecond):
+					continue
+				}
 			}
 		}
 	}

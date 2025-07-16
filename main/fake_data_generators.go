@@ -44,14 +44,20 @@ func (fdg *FakeDataGenerator) GenerateRandomProvider() *Provider {
 	prefix := providerAddressPrefixes[fdg.rand.Intn(len(providerAddressPrefixes))]
 	address := fmt.Sprintf("%s_%d_%x", prefix, fdg.rand.Intn(10000), fdg.rand.Uint32())
 
-	// Generate random stake (between 1000 and 1000000)
-	stake := int64(fdg.rand.Intn(999000) + 1000)
+	// Generate random stake - weighted towards lower stakes to better match policies
+	// 70% chance of stake between 1000-50000, 30% chance of higher stakes
+	var stake int64
+	if fdg.rand.Float32() < 0.7 {
+		stake = int64(fdg.rand.Intn(49000) + 1000) // 1000-50000
+	} else {
+		stake = int64(fdg.rand.Intn(950000) + 50000) // 50000-1000000
+	}
 
 	// Generate random location
 	location := locations[fdg.rand.Intn(len(locations))]
 
-	// Generate random features (1-8 features)
-	numFeatures := fdg.rand.Intn(8) + 1
+	// Generate random features (3-12 features) - increased minimum to improve matching
+	numFeatures := fdg.rand.Intn(10) + 3
 	selectedFeatures := make([]string, 0, numFeatures)
 	usedFeatures := make(map[string]bool)
 
@@ -88,11 +94,11 @@ func (fdg *FakeDataGenerator) GenerateRandomPolicy() *ConsumerPolicy {
 		requiredLocation = locations[fdg.rand.Intn(len(locations))]
 	}
 
-	// Generate random minimum stake (0-50000)
-	minStake := int64(fdg.rand.Intn(50000))
+	// Generate random minimum stake (0-25000) - reduced from 50000
+	minStake := int64(fdg.rand.Intn(25000))
 
-	// Generate random required features (0-5 features)
-	numFeatures := fdg.rand.Intn(6)
+	// Generate random required features (0-3 features) - reduced from 6
+	numFeatures := fdg.rand.Intn(4)
 	requiredFeatures := make([]string, 0, numFeatures)
 	usedFeatures := make(map[string]bool)
 
@@ -231,16 +237,24 @@ func (fdg *FakeDataGenerator) GenerateFeatureRichProviders(count int) []*Provide
 
 // GenerateStrictPolicy generates a policy with strict requirements
 func (fdg *FakeDataGenerator) GenerateStrictPolicy() *ConsumerPolicy {
+	// Generate 2-4 unique features instead of 5 potentially duplicate ones
+	numFeatures := fdg.rand.Intn(3) + 2 // 2-4 features
+	selectedFeatures := make([]string, 0, numFeatures)
+	usedFeatures := make(map[string]bool)
+
+	for len(selectedFeatures) < numFeatures {
+		feature := features[fdg.rand.Intn(len(features))]
+		if !usedFeatures[feature] {
+			selectedFeatures = append(selectedFeatures, feature)
+			usedFeatures[feature] = true
+		}
+	}
+
+	// Reduce minimum stake to more reasonable levels
 	return &ConsumerPolicy{
 		RequiredLocation: locations[fdg.rand.Intn(len(locations))],
-		RequiredFeatures: []string{
-			features[fdg.rand.Intn(len(features))],
-			features[fdg.rand.Intn(len(features))],
-			features[fdg.rand.Intn(len(features))],
-			features[fdg.rand.Intn(len(features))],
-			features[fdg.rand.Intn(len(features))],
-		},
-		MinStake: int64(fdg.rand.Intn(80000) + 20000),
+		RequiredFeatures: selectedFeatures,
+		MinStake:         int64(fdg.rand.Intn(30000) + 5000), // 5000-35000 instead of 20000-100000
 	}
 }
 

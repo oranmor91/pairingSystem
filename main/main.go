@@ -33,113 +33,15 @@ func main() {
 	fmt.Println("\n3. Initializing Pairing System...")
 	pairingSystem := NewDefaultPairingSystem(providerStorage, 50)
 
-	// Test basic pairing functionality
-	fmt.Println("\n4. Testing Basic Pairing Functionality...")
-	testBasicPairing(pairingSystem, providerStorage, policies[:5])
-
-	//Test concurrent processing
-	fmt.Println("\n5. Testing Concurrent Processing...")
-	testConcurrentProcessing(providerStorage, policies)
-
 	//	Test queue-based processing
-	fmt.Println("\n6. Testing Queue-Based Processing...")
+	fmt.Println("\n4. Testing Queue-Based Processing...")
 	testQueueBasedProcessing(providerStorage, policies)
 
 	// Display comprehensive statistics
-	fmt.Println("\n7. System Statistics:")
+	fmt.Println("\n5. System Statistics:")
 	displaySystemStats(pairingSystem)
 
 	fmt.Println("\n=== System Demonstration Complete ===")
-}
-
-func testBasicPairing(pairingSystem *DefaultPairingSystem, storage *ProviderStorage, policies []*ConsumerPolicy) {
-	allProviders := storage.GetAllProviders()
-
-	for i, policy := range policies {
-		fmt.Printf("\n   Policy %d Requirements:\n", i+1)
-		fmt.Printf("     Location: %s\n", policy.RequiredLocation)
-		fmt.Printf("     Min Stake: %d\n", policy.MinStake)
-		fmt.Printf("     Required Features: %v\n", policy.RequiredFeatures)
-
-		// Get pairing list
-		startTime := time.Now()
-		pairingList, err := pairingSystem.GetPairingList(allProviders, policy)
-		processingTime := time.Since(startTime)
-
-		if err != nil {
-			fmt.Printf("     ❌ Error: %v\n", err)
-			continue
-		}
-
-		fmt.Printf("     ✓ Found %d matching providers (processed in %v)\n",
-			len(pairingList), processingTime)
-
-		// Display top providers
-		for j, provider := range pairingList {
-			fmt.Printf("       %d. %s (Stake: %d, Location: %s, Features: %d)\n",
-				j+1, provider.Address, provider.Stake, provider.Location, len(provider.Features))
-		}
-
-		// Get detailed results
-		result, err := pairingSystem.GetPairingListWithDetails(allProviders, policy)
-		if err == nil {
-			fmt.Printf("     📊 Filtered: %d → Ranked: %d → Top: %d\n",
-				result.FilteredCount, result.RankedCount, len(result.TopProviders))
-		}
-	}
-}
-
-func testConcurrentProcessing(storage *ProviderStorage, policies []*ConsumerPolicy) {
-	fmt.Println("   Creating concurrent pairing system...")
-
-	// Create concurrent system
-	concurrentSystem := NewConcurrentPairingSystem(storage, 5, 100)
-
-	// Start the system
-	err := concurrentSystem.Start()
-	if err != nil {
-		fmt.Printf("   ❌ Failed to start concurrent system: %v\n", err)
-		return
-	}
-	defer concurrentSystem.Stop()
-
-	fmt.Println("   ✓ Concurrent system started with 5 workers")
-
-	// Process policies directly
-	fmt.Println("   Processing policies directly...")
-	startTime := time.Now()
-
-	results, err := concurrentSystem.ProcessPoliciesDirectly(policies[:10])
-	processingTime := time.Since(startTime)
-
-	if err != nil {
-		fmt.Printf("   ❌ Error processing policies: %v\n", err)
-		return
-	}
-
-	fmt.Printf("   ✓ Processed %d policies in %v (avg: %v per policy)\n",
-		len(results), processingTime, processingTime/time.Duration(len(results)))
-
-	// Display results summary
-	successCount := 0
-	totalProviders := 0
-
-	for _, result := range results {
-		if result.Error == nil {
-			successCount++
-			totalProviders += len(result.TopProviders)
-		}
-	}
-
-	fmt.Printf("   📊 Success rate: %d/%d (%.1f%%)\n",
-		successCount, len(results), float64(successCount)/float64(len(results))*100)
-	fmt.Printf("   📊 Average providers per policy: %.1f\n",
-		float64(totalProviders)/float64(successCount))
-
-	// Display system stats
-	stats := concurrentSystem.GetStats()
-	fmt.Printf("   📊 System stats: %d processed, %d errors\n",
-		stats["total_processed"], stats["total_errors"])
 }
 
 func testQueueBasedProcessing(storage *ProviderStorage, policies []*ConsumerPolicy) {
@@ -180,6 +82,45 @@ func testQueueBasedProcessing(storage *ProviderStorage, policies []*ConsumerPoli
 
 	fmt.Printf("   ✓ Retrieved %d results in %v\n", len(results), processingTime)
 
+	// Print each result with clear formatting
+	fmt.Println("   Results:")
+	for i, result := range results {
+		fmt.Printf("\n   📋 Result %d:\n", i+1)
+
+		// Display Policy Information
+		fmt.Printf("      Policy Details:\n")
+		fmt.Printf("        Required Location: %s\n", result.Policy.RequiredLocation)
+		fmt.Printf("        Required Features: %v\n", result.Policy.RequiredFeatures)
+		fmt.Printf("        Min Stake: %d\n", result.Policy.MinStake)
+
+		// Display Processing Statistics
+		fmt.Printf("      Processing Stats:\n")
+		fmt.Printf("        Filtered Count: %d\n", result.FilteredCount)
+		fmt.Printf("        Ranked Count: %d\n", result.RankedCount)
+		fmt.Printf("        Processing Time: %v\n", result.ProcessingTime)
+
+		// Display Top Providers
+		fmt.Printf("      Top Providers (%d found):\n", len(result.TopProviders))
+		if len(result.TopProviders) == 0 {
+			fmt.Printf("        ❌ No providers found matching criteria\n")
+		} else {
+			for j, provider := range result.TopProviders {
+				fmt.Printf("        %d. Address: %s\n", j+1, provider.Address)
+				fmt.Printf("           Stake: %d\n", provider.Stake)
+				fmt.Printf("           Location: %s\n", provider.Location)
+				fmt.Printf("           Features: %v\n", provider.Features)
+				if j < len(result.TopProviders)-1 {
+					fmt.Printf("           ---\n")
+				}
+			}
+		}
+
+		// Display any errors
+		if result.Error != nil {
+			fmt.Printf("      ❌ Error: %v\n", result.Error)
+		}
+	}
+
 	// Display queue statistics
 	queueStats := queueSystem.GetQueueStats()
 	fmt.Printf("   📊 Queue stats: %v\n", queueStats)
@@ -203,89 +144,6 @@ func displaySystemStats(pairingSystem *DefaultPairingSystem) {
 			fmt.Printf("   Cache Size: %v/%v\n", cacheMap["size"], cacheMap["capacity"])
 		}
 	}
-}
-
-// Additional demonstration functions
-
-func demonstrateFiltering() {
-	fmt.Println("\n=== Filtering Demonstration ===")
-
-	generator := NewFakeDataGenerator()
-
-	// Generate test data
-	providers := generator.GenerateRandomProviders(20)
-	policy := &ConsumerPolicy{
-		RequiredLocation: "US-East-1",
-		RequiredFeatures: []string{"HTTP", "HTTPS"},
-		MinStake:         10000,
-	}
-
-	// Create filter chain
-	filterChain := NewFilterChain()
-
-	fmt.Printf("Initial providers: %d\n", len(providers))
-
-	// Apply filters
-	filtered := filterChain.ApplyFilters(providers, policy)
-
-	fmt.Printf("After filtering: %d\n", len(filtered))
-
-	// Show filter stats
-	stats := filterChain.GetFilterStats(providers, policy)
-	fmt.Printf("Filter stats: %v\n", stats)
-}
-
-func demonstrateScoring() {
-	fmt.Println("\n=== Scoring Demonstration ===")
-
-	generator := NewFakeDataGenerator()
-
-	// Generate test data
-	providers := generator.GenerateRandomProviders(10)
-	policy := generator.GenerateRandomPolicy()
-
-	// Create scoring system
-	scoringSystem := NewScoringSystem()
-
-	// Score providers
-	scores := scoringSystem.RankProviders(providers, policy)
-
-	fmt.Printf("Policy: Location=%s, MinStake=%d, Features=%v\n",
-		policy.RequiredLocation, policy.MinStake, policy.RequiredFeatures)
-
-	fmt.Println("Ranked providers:")
-	for i, score := range scores {
-		fmt.Printf("%d. %s (Score: %.3f) [Stake: %.3f, Location: %.3f, Features: %.3f]\n",
-			i+1, score.Provider.Address, score.Score,
-			score.Components["stake"], score.Components["location"], score.Components["features"])
-	}
-}
-
-func demonstrateCaching() {
-	fmt.Println("\n=== Caching Demonstration ===")
-
-	cache := NewLFUCache(5)
-	generator := NewFakeDataGenerator()
-
-	// Generate test policies
-	policies := generator.GenerateRandomPolicies(10)
-
-	// Test cache operations
-	for i, policy := range policies {
-		providers := generator.GenerateRandomProviders(5)
-
-		// Cache miss
-		if cached, found := cache.Get(policy); found {
-			fmt.Printf("Policy %d: Cache HIT (%d providers)\n", i+1, len(cached))
-		} else {
-			fmt.Printf("Policy %d: Cache MISS\n", i+1)
-			cache.Put(policy, providers)
-		}
-	}
-
-	// Display cache stats
-	stats := cache.GetStats()
-	fmt.Printf("Cache stats: %v\n", stats)
 }
 
 func init() {

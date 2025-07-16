@@ -80,12 +80,21 @@ func (pw *PairingWorker) ProcessPolicy(policy *ConsumerPolicy) *ProcessorResult 
 	pw.mu.Lock()
 	defer pw.mu.Unlock()
 
+	// Validate policy before processing
+	if policy == nil {
+		pw.errors++
+		return &ProcessorResult{
+			Policy: nil,
+			Error:  fmt.Errorf("policy cannot be nil"),
+		}
+	}
+
 	result, err := pw.pairingSystem.GetPairingListWithDetails(nil, policy)
 	if err != nil {
 		pw.errors++
 		return &ProcessorResult{
 			Policy: policy,
-			Error:  err,
+			Error:  fmt.Errorf("failed to process policy: %w", err),
 		}
 	}
 
@@ -183,7 +192,11 @@ func (cps *ConcurrentPairingSystem) processPolicyFromQueue(policy *ConsumerPolic
 		go func() {
 			defer func() {
 				// Return worker to pool
-				cps.workerPool <- worker
+				select {
+				case cps.workerPool <- worker:
+				case <-cps.ctx.Done():
+					// System is shutting down, don't block
+				}
 			}()
 
 			result := worker.ProcessPolicy(policy)
@@ -206,7 +219,44 @@ func (cps *ConcurrentPairingSystem) processPolicyFromQueue(policy *ConsumerPolic
 
 		return nil
 	default:
-		return fmt.Errorf("no workers available")
+		// If no worker is immediately available, wait with timeout
+		select {
+		case <-cps.ctx.Done():
+			return fmt.Errorf("system is shutting down")
+		case worker := <-cps.workerPool:
+			// Process policy in a goroutine
+			go func() {
+				defer func() {
+					// Return worker to pool
+					select {
+					case cps.workerPool <- worker:
+					case <-cps.ctx.Done():
+						// System is shutting down, don't block
+					}
+				}()
+
+				result := worker.ProcessPolicy(policy)
+
+				// Send result to results channel
+				select {
+				case cps.resultsChan <- result:
+				case <-cps.ctx.Done():
+					return
+				}
+
+				// Update statistics
+				cps.mu.Lock()
+				cps.totalProcessed++
+				if result.Error != nil {
+					cps.totalErrors++
+				}
+				cps.mu.Unlock()
+			}()
+
+			return nil
+		case <-time.After(100 * time.Millisecond):
+			return fmt.Errorf("no workers available after timeout")
+		}
 	}
 }
 
