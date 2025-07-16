@@ -1,4 +1,4 @@
-module awesomeProject
+module pairingSystem
 
 go 1.21
 

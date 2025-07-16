@@ -1,17 +1,21 @@
-package main
+package queue
 
 import (
 	"context"
 	"fmt"
 	"sync"
 	"time"
+
+	"pairingSystem/internal/models"
+	"pairingSystem/internal/services"
+	"pairingSystem/internal/storage"
 )
 
 // ConcurrentPairingSystem manages the complete concurrent pairing system
 type ConcurrentPairingSystem struct {
 	// Core components
-	providerStorage *ProviderStorage
-	pairingSystem   *DefaultPairingSystem
+	providerStorage *storage.ProviderStorage
+	pairingSystem   *services.DefaultPairingSystem
 	queueManager    *QueueManager
 
 	// Worker management - simplified
@@ -30,15 +34,15 @@ type ConcurrentPairingSystem struct {
 	startTime      time.Time
 
 	// Results channel
-	resultsChan     chan *ProcessorResult
-	resultsBuffer   []*ProcessorResult
+	resultsChan     chan *services.ProcessorResult
+	resultsBuffer   []*services.ProcessorResult
 	resultsBufferMu sync.Mutex
 }
 
 // PairingWorker represents a worker that processes policies
 type PairingWorker struct {
 	id            int
-	pairingSystem *DefaultPairingSystem
+	pairingSystem *services.DefaultPairingSystem
 	processed     int64
 	errors        int64
 	mu            sync.RWMutex
@@ -47,12 +51,12 @@ type PairingWorker struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	queue       *PolicyQueue
-	resultsChan chan *ProcessorResult
+	resultsChan chan *services.ProcessorResult
 	running     bool
 }
 
 // NewConcurrentPairingSystem creates a new concurrent pairing system
-func NewConcurrentPairingSystem(providerStorage *ProviderStorage, maxWorkers int, queueCapacity int) *ConcurrentPairingSystem {
+func NewConcurrentPairingSystem(providerStorage *storage.ProviderStorage, maxWorkers int, queueCapacity int) *ConcurrentPairingSystem {
 	if maxWorkers <= 0 {
 		maxWorkers = 10 // Default number of workers
 	}
@@ -61,19 +65,19 @@ func NewConcurrentPairingSystem(providerStorage *ProviderStorage, maxWorkers int
 
 	return &ConcurrentPairingSystem{
 		providerStorage: providerStorage,
-		pairingSystem:   NewDefaultPairingSystem(providerStorage, 100),
+		pairingSystem:   services.NewDefaultPairingSystem(providerStorage, 100),
 		queueManager:    NewQueueManager(queueCapacity),
 		maxWorkers:      maxWorkers,
 		workers:         make([]*PairingWorker, 0, maxWorkers),
 		ctx:             ctx,
 		cancel:          cancel,
-		resultsChan:     make(chan *ProcessorResult, 1000),
-		resultsBuffer:   make([]*ProcessorResult, 0),
+		resultsChan:     make(chan *services.ProcessorResult, 1000),
+		resultsBuffer:   make([]*services.ProcessorResult, 0),
 	}
 }
 
 // NewPairingWorker creates a new pairing worker
-func NewPairingWorker(id int, pairingSystem *DefaultPairingSystem, queue *PolicyQueue, resultsChan chan *ProcessorResult) *PairingWorker {
+func NewPairingWorker(id int, pairingSystem *services.DefaultPairingSystem, queue *PolicyQueue, resultsChan chan *services.ProcessorResult) *PairingWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PairingWorker{
 		id:            id,
@@ -148,14 +152,14 @@ func (pw *PairingWorker) workLoop() {
 }
 
 // ProcessPolicy processes a single policy
-func (pw *PairingWorker) ProcessPolicy(policy *ConsumerPolicy) *ProcessorResult {
+func (pw *PairingWorker) ProcessPolicy(policy *models.ConsumerPolicy) *services.ProcessorResult {
 	pw.mu.Lock()
 	defer pw.mu.Unlock()
 
 	// Validate policy before processing
 	if policy == nil {
 		pw.errors++
-		return &ProcessorResult{
+		return &services.ProcessorResult{
 			Policy: nil,
 			Error:  fmt.Errorf("policy cannot be nil"),
 		}
@@ -164,7 +168,7 @@ func (pw *PairingWorker) ProcessPolicy(policy *ConsumerPolicy) *ProcessorResult 
 	result, err := pw.pairingSystem.GetPairingListWithDetails(nil, policy)
 	if err != nil {
 		pw.errors++
-		return &ProcessorResult{
+		return &services.ProcessorResult{
 			Policy: policy,
 			Error:  fmt.Errorf("failed to process policy: %w", err),
 		}
@@ -276,7 +280,7 @@ func (cps *ConcurrentPairingSystem) collectResults() {
 }
 
 // EnqueuePolicy adds a policy to the processing queue
-func (cps *ConcurrentPairingSystem) EnqueuePolicy(policy *ConsumerPolicy) error {
+func (cps *ConcurrentPairingSystem) EnqueuePolicy(policy *models.ConsumerPolicy) error {
 	if !cps.IsRunning() {
 		return fmt.Errorf("system is not running")
 	}
@@ -289,7 +293,7 @@ func (cps *ConcurrentPairingSystem) EnqueuePolicy(policy *ConsumerPolicy) error 
 }
 
 // EnqueuePolicies adds multiple policies to the processing queue
-func (cps *ConcurrentPairingSystem) EnqueuePolicies(policies []*ConsumerPolicy) error {
+func (cps *ConcurrentPairingSystem) EnqueuePolicies(policies []*models.ConsumerPolicy) error {
 	if !cps.IsRunning() {
 		return fmt.Errorf("system is not running")
 	}
@@ -302,12 +306,12 @@ func (cps *ConcurrentPairingSystem) EnqueuePolicies(policies []*ConsumerPolicy) 
 }
 
 // GetResults returns and clears the results buffer
-func (cps *ConcurrentPairingSystem) GetResults() []*ProcessorResult {
+func (cps *ConcurrentPairingSystem) GetResults() []*services.ProcessorResult {
 	cps.resultsBufferMu.Lock()
 	defer cps.resultsBufferMu.Unlock()
 
 	results := cps.resultsBuffer
-	cps.resultsBuffer = make([]*ProcessorResult, 0)
+	cps.resultsBuffer = make([]*services.ProcessorResult, 0)
 	return results
 }
 
@@ -383,17 +387,17 @@ func (cps *ConcurrentPairingSystem) GetProviderCount() int {
 }
 
 // AddProvider adds a provider to the storage
-func (cps *ConcurrentPairingSystem) AddProvider(provider *Provider) {
+func (cps *ConcurrentPairingSystem) AddProvider(provider *models.Provider) {
 	cps.providerStorage.AddProvider(provider)
 }
 
 // GetProviderStorage returns the provider storage (for testing/debugging)
-func (cps *ConcurrentPairingSystem) GetProviderStorage() *ProviderStorage {
+func (cps *ConcurrentPairingSystem) GetProviderStorage() *storage.ProviderStorage {
 	return cps.providerStorage
 }
 
 // GetPairingSystem returns the pairing system (for testing/debugging)
-func (cps *ConcurrentPairingSystem) GetPairingSystem() *DefaultPairingSystem {
+func (cps *ConcurrentPairingSystem) GetPairingSystem() *services.DefaultPairingSystem {
 	return cps.pairingSystem
 }
 
@@ -403,7 +407,7 @@ func (cps *ConcurrentPairingSystem) GetQueueManager() *QueueManager {
 }
 
 // ProcessPolicyDirectly processes a policy directly without using the queue
-func (cps *ConcurrentPairingSystem) ProcessPolicyDirectly(policy *ConsumerPolicy) (*ProcessorResult, error) {
+func (cps *ConcurrentPairingSystem) ProcessPolicyDirectly(policy *models.ConsumerPolicy) (*services.ProcessorResult, error) {
 	if !cps.IsRunning() {
 		return nil, fmt.Errorf("system is not running")
 	}
@@ -412,7 +416,7 @@ func (cps *ConcurrentPairingSystem) ProcessPolicyDirectly(policy *ConsumerPolicy
 }
 
 // ProcessPoliciesDirectly processes multiple policies directly without using the queue
-func (cps *ConcurrentPairingSystem) ProcessPoliciesDirectly(policies []*ConsumerPolicy) ([]*ProcessorResult, error) {
+func (cps *ConcurrentPairingSystem) ProcessPoliciesDirectly(policies []*models.ConsumerPolicy) ([]*services.ProcessorResult, error) {
 	if !cps.IsRunning() {
 		return nil, fmt.Errorf("system is not running")
 	}
@@ -442,6 +446,6 @@ func (cps *ConcurrentPairingSystem) ResetStats() {
 
 	// Clear results buffer
 	cps.resultsBufferMu.Lock()
-	cps.resultsBuffer = make([]*ProcessorResult, 0)
+	cps.resultsBuffer = make([]*services.ProcessorResult, 0)
 	cps.resultsBufferMu.Unlock()
 }

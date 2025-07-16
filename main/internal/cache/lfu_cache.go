@@ -1,15 +1,17 @@
-package main
+package cache
 
 import (
 	"fmt"
 	"sync"
 	"time"
+
+	"pairingSystem/internal/models"
 )
 
 // CacheItem represents an item in the LFU cache
 type CacheItem struct {
 	Key       string
-	Value     []*Provider
+	Value     []*models.Provider
 	Frequency int
 	Timestamp time.Time
 }
@@ -40,7 +42,7 @@ func NewLFUCache(capacity int) *LFUCache {
 }
 
 // generateKey generates a cache key from policy and provider list
-func (cache *LFUCache) generateKey(policy *ConsumerPolicy) string {
+func (cache *LFUCache) generateKey(policy *models.ConsumerPolicy) string {
 	return fmt.Sprintf("policy_%s_%d_%v",
 		policy.RequiredLocation,
 		policy.MinStake,
@@ -108,7 +110,7 @@ func (cache *LFUCache) evict() {
 }
 
 // Get retrieves providers from cache for a given policy
-func (cache *LFUCache) Get(policy *ConsumerPolicy) ([]*Provider, bool) {
+func (cache *LFUCache) Get(policy *models.ConsumerPolicy) ([]*models.Provider, bool) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -125,7 +127,7 @@ func (cache *LFUCache) Get(policy *ConsumerPolicy) ([]*Provider, bool) {
 }
 
 // Put stores providers in cache for a given policy
-func (cache *LFUCache) Put(policy *ConsumerPolicy, providers []*Provider) {
+func (cache *LFUCache) Put(policy *models.ConsumerPolicy, providers []*models.Provider) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -159,7 +161,7 @@ func (cache *LFUCache) Put(policy *ConsumerPolicy, providers []*Provider) {
 }
 
 // Contains checks if a policy exists in the cache
-func (cache *LFUCache) Contains(policy *ConsumerPolicy) bool {
+func (cache *LFUCache) Contains(policy *models.ConsumerPolicy) bool {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
@@ -169,7 +171,7 @@ func (cache *LFUCache) Contains(policy *ConsumerPolicy) bool {
 }
 
 // Remove removes a policy from the cache
-func (cache *LFUCache) Remove(policy *ConsumerPolicy) bool {
+func (cache *LFUCache) Remove(policy *models.ConsumerPolicy) bool {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 

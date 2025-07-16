@@ -8,6 +8,12 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"pairingSystem/internal/models"
+	"pairingSystem/internal/queue"
+	"pairingSystem/internal/services"
+	"pairingSystem/internal/storage"
+	"pairingSystem/internal/testdata"
 )
 
 func main() {
@@ -20,7 +26,7 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Initialize fake data generator
-	generator := NewFakeDataGenerator()
+	generator := testdata.NewFakeDataGenerator()
 
 	// Generate initial realistic workload
 	fmt.Println("\n1. Generating initial workload...")
@@ -36,11 +42,11 @@ func main() {
 
 	// Initialize pairing system
 	fmt.Println("\n3. Initializing Pairing System...")
-	pairingSystem := NewDefaultPairingSystem(providerStorage, 100)
+	pairingSystem := services.NewDefaultPairingSystem(providerStorage, 100)
 
 	// Initialize queue-based processing system
 	fmt.Println("\n4. Starting Continuous Queue-Based Processing...")
-	queueSystem := NewConcurrentPairingSystem(providerStorage, 5, 100) // 5 workers, 100 queue capacity
+	queueSystem := queue.NewConcurrentPairingSystem(providerStorage, 5, 100) // 5 workers, 100 queue capacity
 
 	// Start the queue system
 	err := queueSystem.Start()
@@ -104,7 +110,7 @@ func main() {
 }
 
 // continuousPolicyGeneration generates policies continuously
-func continuousPolicyGeneration(generator *FakeDataGenerator, queueSystem *ConcurrentPairingSystem, shutdown <-chan struct{}) {
+func continuousPolicyGeneration(generator *testdata.FakeDataGenerator, queueSystem *queue.ConcurrentPairingSystem, shutdown <-chan struct{}) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -117,12 +123,12 @@ func continuousPolicyGeneration(generator *FakeDataGenerator, queueSystem *Concu
 			return
 		case <-ticker.C:
 			// Generate 1-3 policies
-			numPolicies := generator.rand.Intn(3) + 1
-			policies := make([]*ConsumerPolicy, numPolicies)
+			numPolicies := generator.Rand.Intn(3) + 1
+			policies := make([]*models.ConsumerPolicy, numPolicies)
 
 			for i := 0; i < numPolicies; i++ {
 				// 40% relaxed, 30% strict, 30% random
-				rand := generator.rand.Float32()
+				rand := generator.Rand.Float32()
 				if rand < 0.4 {
 					policies[i] = generator.GenerateRelaxedPolicy()
 				} else if rand < 0.7 {
@@ -146,7 +152,7 @@ func continuousPolicyGeneration(generator *FakeDataGenerator, queueSystem *Concu
 }
 
 // continuousProviderGeneration adds providers continuously
-func continuousProviderGeneration(generator *FakeDataGenerator, storage *ProviderStorage, shutdown <-chan struct{}) {
+func continuousProviderGeneration(generator *testdata.FakeDataGenerator, storage *storage.ProviderStorage, shutdown <-chan struct{}) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -157,23 +163,23 @@ func continuousProviderGeneration(generator *FakeDataGenerator, storage *Provide
 			return
 		case <-ticker.C:
 			// Add 5-15 new providers
-			numProviders := generator.rand.Intn(11) + 5
+			numProviders := generator.Rand.Intn(11) + 5
 
 			for i := 0; i < numProviders; i++ {
 				// 50% random, 30% high stake, 20% feature rich
-				rand := generator.rand.Float32()
-				var provider *Provider
+				rand := generator.Rand.Float32()
+				var provider *models.Provider
 
 				if rand < 0.5 {
 					provider = generator.GenerateRandomProvider()
 				} else if rand < 0.8 {
 					provider = generator.GenerateRandomProvider()
-					provider.Stake = int64(generator.rand.Intn(500000) + 500000) // High stake
+					provider.Stake = int64(generator.Rand.Intn(500000) + 500000) // High stake
 				} else {
 					provider = generator.GenerateRandomProvider()
 					// Add more features
 					allFeatures := generator.GetAvailableFeatures()
-					numFeatures := generator.rand.Intn(10) + 10 // 10-20 features
+					numFeatures := generator.Rand.Intn(10) + 10 // 10-20 features
 					selectedFeatures := make([]string, 0, numFeatures)
 					usedFeatures := make(map[string]bool)
 
@@ -182,7 +188,7 @@ func continuousProviderGeneration(generator *FakeDataGenerator, storage *Provide
 					}
 
 					for len(selectedFeatures) < numFeatures && len(selectedFeatures) < len(allFeatures) {
-						feature := allFeatures[generator.rand.Intn(len(allFeatures))]
+						feature := allFeatures[generator.Rand.Intn(len(allFeatures))]
 						if !usedFeatures[feature] {
 							selectedFeatures = append(selectedFeatures, feature)
 							usedFeatures[feature] = true
@@ -200,7 +206,7 @@ func continuousProviderGeneration(generator *FakeDataGenerator, storage *Provide
 }
 
 // periodicStatsDisplay displays system statistics periodically
-func periodicStatsDisplay(queueSystem *ConcurrentPairingSystem, pairingSystem *DefaultPairingSystem, storage *ProviderStorage, shutdown <-chan struct{}) {
+func periodicStatsDisplay(queueSystem *queue.ConcurrentPairingSystem, pairingSystem *services.DefaultPairingSystem, storage *storage.ProviderStorage, shutdown <-chan struct{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -257,7 +263,7 @@ func periodicStatsDisplay(queueSystem *ConcurrentPairingSystem, pairingSystem *D
 }
 
 // periodicResultsDisplay displays processing results periodically
-func periodicResultsDisplay(queueSystem *ConcurrentPairingSystem, shutdown <-chan struct{}) {
+func periodicResultsDisplay(queueSystem *queue.ConcurrentPairingSystem, shutdown <-chan struct{}) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -318,7 +324,7 @@ func periodicResultsDisplay(queueSystem *ConcurrentPairingSystem, shutdown <-cha
 }
 
 // displayProviderDistribution displays provider distribution by location
-func displayProviderDistribution(storage *ProviderStorage) {
+func displayProviderDistribution(storage *storage.ProviderStorage) {
 	locationStats := storage.GetLocationStats()
 	for location, count := range locationStats {
 		fmt.Printf("   %s: %d providers\n", location, count)
@@ -333,7 +339,7 @@ func min(a, b int) int {
 	return b
 }
 
-func displaySystemStats(pairingSystem *DefaultPairingSystem) {
+func displaySystemStats(pairingSystem *services.DefaultPairingSystem) {
 	stats := pairingSystem.GetStats()
 
 	fmt.Printf("   Total Processed: %v\n", stats["total_processed"])

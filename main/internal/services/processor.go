@@ -1,28 +1,33 @@
-package main
+package services
 
 import (
 	"context"
 	"fmt"
 	"sync"
 	"time"
+
+	"pairingSystem/internal/cache"
+	"pairingSystem/internal/filters"
+	"pairingSystem/internal/models"
+	"pairingSystem/internal/storage"
 )
 
 // ProcessorResult represents the result of processing a policy
 type ProcessorResult struct {
-	Policy         *ConsumerPolicy
+	Policy         *models.ConsumerPolicy
 	FilteredCount  int
 	RankedCount    int
-	TopProviders   []*Provider
+	TopProviders   []*models.Provider
 	ProcessingTime time.Duration
 	Error          error
 }
 
 // Processor handles the filtering and ranking of providers
 type Processor struct {
-	providerStorage *ProviderStorage
-	filterChain     *FilterChain
+	providerStorage *storage.ProviderStorage
+	filterChain     *filters.FilterChain
 	scoringSystem   *ScoringSystem
-	cache           *LFUCache
+	cache           *cache.LFUCache
 
 	// Processing statistics
 	mu                 sync.RWMutex
@@ -40,12 +45,12 @@ type Processor struct {
 }
 
 // NewProcessor creates a new processor instance
-func NewProcessor(storage *ProviderStorage, cacheCapacity int) *Processor {
+func NewProcessor(storage *storage.ProviderStorage, cacheCapacity int) *Processor {
 	return &Processor{
 		providerStorage: storage,
-		filterChain:     NewFilterChain(),
+		filterChain:     filters.NewFilterChain(),
 		scoringSystem:   NewScoringSystem(),
-		cache:           NewLFUCache(cacheCapacity),
+		cache:           cache.NewLFUCache(cacheCapacity),
 		topN:            5,
 		enableCaching:   true,
 		enableStats:     true,
@@ -79,14 +84,14 @@ func (p *Processor) SetStatsEnabled(enabled bool) {
 }
 
 // FilterProviders filters providers based on policy requirements
-func (p *Processor) FilterProviders(providers []*Provider, policy *ConsumerPolicy) []*Provider {
+func (p *Processor) FilterProviders(providers []*models.Provider, policy *models.ConsumerPolicy) []*models.Provider {
 	if len(providers) == 0 {
 		return providers
 	}
 
 	// Validate policy
-	if err := ValidatePolicy(policy); err != nil {
-		return []*Provider{}
+	if err := filters.ValidatePolicy(policy); err != nil {
+		return []*models.Provider{}
 	}
 
 	// Apply filters
@@ -103,14 +108,14 @@ func (p *Processor) FilterProviders(providers []*Provider, policy *ConsumerPolic
 }
 
 // RankProviders ranks providers based on policy preferences
-func (p *Processor) RankProviders(providers []*Provider, policy *ConsumerPolicy) []*PairingScore {
+func (p *Processor) RankProviders(providers []*models.Provider, policy *models.ConsumerPolicy) []*models.PairingScore {
 	if len(providers) == 0 {
-		return []*PairingScore{}
+		return []*models.PairingScore{}
 	}
 
 	// Validate policy
-	if err := ValidatePolicy(policy); err != nil {
-		return []*PairingScore{}
+	if err := filters.ValidatePolicy(policy); err != nil {
+		return []*models.PairingScore{}
 	}
 
 	// Rank providers
@@ -127,7 +132,7 @@ func (p *Processor) RankProviders(providers []*Provider, policy *ConsumerPolicy)
 }
 
 // ProcessPolicy processes a single policy through the complete pipeline
-func (p *Processor) ProcessPolicy(policy *ConsumerPolicy) *ProcessorResult {
+func (p *Processor) ProcessPolicy(policy *models.ConsumerPolicy) *ProcessorResult {
 	startTime := time.Now()
 
 	result := &ProcessorResult{
@@ -178,7 +183,7 @@ func (p *Processor) ProcessPolicy(policy *ConsumerPolicy) *ProcessorResult {
 		topN = len(rankedScores)
 	}
 
-	result.TopProviders = make([]*Provider, topN)
+	result.TopProviders = make([]*models.Provider, topN)
 	for i := 0; i < topN; i++ {
 		result.TopProviders[i] = rankedScores[i].Provider
 	}
@@ -202,7 +207,7 @@ func (p *Processor) ProcessPolicy(policy *ConsumerPolicy) *ProcessorResult {
 }
 
 // ProcessPoliciesConcurrently processes multiple policies concurrently
-func (p *Processor) ProcessPoliciesConcurrently(policies []*ConsumerPolicy, maxConcurrency int) []*ProcessorResult {
+func (p *Processor) ProcessPoliciesConcurrently(policies []*models.ConsumerPolicy, maxConcurrency int) []*ProcessorResult {
 	if len(policies) == 0 {
 		return []*ProcessorResult{}
 	}
@@ -212,7 +217,7 @@ func (p *Processor) ProcessPoliciesConcurrently(policies []*ConsumerPolicy, maxC
 	}
 
 	// Create channels for work distribution
-	policyChannel := make(chan *ConsumerPolicy, len(policies))
+	policyChannel := make(chan *models.ConsumerPolicy, len(policies))
 	resultChannel := make(chan *ProcessorResult, len(policies))
 
 	// Start workers
@@ -250,7 +255,7 @@ func (p *Processor) ProcessPoliciesConcurrently(policies []*ConsumerPolicy, maxC
 }
 
 // ProcessPoliciesWithContext processes policies with context for cancellation
-func (p *Processor) ProcessPoliciesWithContext(ctx context.Context, policies []*ConsumerPolicy, maxConcurrency int) []*ProcessorResult {
+func (p *Processor) ProcessPoliciesWithContext(ctx context.Context, policies []*models.ConsumerPolicy, maxConcurrency int) []*ProcessorResult {
 	if len(policies) == 0 {
 		return []*ProcessorResult{}
 	}
@@ -260,7 +265,7 @@ func (p *Processor) ProcessPoliciesWithContext(ctx context.Context, policies []*
 	}
 
 	// Create channels
-	policyChannel := make(chan *ConsumerPolicy, len(policies))
+	policyChannel := make(chan *models.ConsumerPolicy, len(policies))
 	resultChannel := make(chan *ProcessorResult, len(policies))
 
 	// Start workers
@@ -363,7 +368,7 @@ func (p *Processor) GetStats() map[string]interface{} {
 }
 
 // GetFilterStats returns detailed filtering statistics
-func (p *Processor) GetFilterStats(policy *ConsumerPolicy) map[string]interface{} {
+func (p *Processor) GetFilterStats(policy *models.ConsumerPolicy) map[string]interface{} {
 	allProviders := p.providerStorage.GetAllProviders()
 	stats := p.filterChain.GetFilterStats(allProviders, policy)
 
@@ -376,7 +381,7 @@ func (p *Processor) GetFilterStats(policy *ConsumerPolicy) map[string]interface{
 }
 
 // GetScoringStats returns detailed scoring statistics
-func (p *Processor) GetScoringStats(policy *ConsumerPolicy) map[string]interface{} {
+func (p *Processor) GetScoringStats(policy *models.ConsumerPolicy) map[string]interface{} {
 	allProviders := p.providerStorage.GetAllProviders()
 	filteredProviders := p.FilterProviders(allProviders, policy)
 	return p.scoringSystem.GetScoringStats(filteredProviders, policy)
@@ -435,11 +440,11 @@ func (p *Processor) UpdateScoringWeights(stake, location, feature float64) error
 }
 
 // GetCache returns the processor's cache (for testing/debugging)
-func (p *Processor) GetCache() *LFUCache {
+func (p *Processor) GetCache() *cache.LFUCache {
 	return p.cache
 }
 
 // GetProviderStorage returns the processor's provider storage (for testing/debugging)
-func (p *Processor) GetProviderStorage() *ProviderStorage {
+func (p *Processor) GetProviderStorage() *storage.ProviderStorage {
 	return p.providerStorage
 }

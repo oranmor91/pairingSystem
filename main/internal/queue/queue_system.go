@@ -1,15 +1,17 @@
-package main
+package queue
 
 import (
 	"context"
 	"fmt"
 	"sync"
 	"time"
+
+	"pairingSystem/internal/models"
 )
 
 // PolicyQueue represents a thread-safe queue for consumer policies
 type PolicyQueue struct {
-	queue    chan *ConsumerPolicy
+	queue    chan *models.ConsumerPolicy
 	closed   bool
 	mu       sync.RWMutex
 	capacity int
@@ -24,13 +26,13 @@ func NewPolicyQueue(capacity int) *PolicyQueue {
 	}
 
 	return &PolicyQueue{
-		queue:    make(chan *ConsumerPolicy, capacity),
+		queue:    make(chan *models.ConsumerPolicy, capacity),
 		capacity: capacity,
 	}
 }
 
 // Enqueue adds a policy to the queue (non-blocking)
-func (pq *PolicyQueue) Enqueue(policy *ConsumerPolicy) error {
+func (pq *PolicyQueue) Enqueue(policy *models.ConsumerPolicy) error {
 	pq.mu.RLock()
 	defer pq.mu.RUnlock()
 
@@ -48,7 +50,7 @@ func (pq *PolicyQueue) Enqueue(policy *ConsumerPolicy) error {
 }
 
 // EnqueueWithTimeout adds a policy to the queue with timeout
-func (pq *PolicyQueue) EnqueueWithTimeout(policy *ConsumerPolicy, timeout time.Duration) error {
+func (pq *PolicyQueue) EnqueueWithTimeout(policy *models.ConsumerPolicy, timeout time.Duration) error {
 	pq.mu.RLock()
 	defer pq.mu.RUnlock()
 
@@ -66,7 +68,7 @@ func (pq *PolicyQueue) EnqueueWithTimeout(policy *ConsumerPolicy, timeout time.D
 }
 
 // Dequeue removes and returns a policy from the queue (blocking)
-func (pq *PolicyQueue) Dequeue() (*ConsumerPolicy, error) {
+func (pq *PolicyQueue) Dequeue() (*models.ConsumerPolicy, error) {
 	pq.mu.RLock()
 	defer pq.mu.RUnlock()
 
@@ -84,7 +86,7 @@ func (pq *PolicyQueue) Dequeue() (*ConsumerPolicy, error) {
 }
 
 // DequeueWithTimeout removes and returns a policy from the queue with timeout
-func (pq *PolicyQueue) DequeueWithTimeout(timeout time.Duration) (*ConsumerPolicy, error) {
+func (pq *PolicyQueue) DequeueWithTimeout(timeout time.Duration) (*models.ConsumerPolicy, error) {
 	pq.mu.RLock()
 	defer pq.mu.RUnlock()
 
@@ -105,7 +107,7 @@ func (pq *PolicyQueue) DequeueWithTimeout(timeout time.Duration) (*ConsumerPolic
 }
 
 // DequeueWithContext removes and returns a policy from the queue with context
-func (pq *PolicyQueue) DequeueWithContext(ctx context.Context) (*ConsumerPolicy, error) {
+func (pq *PolicyQueue) DequeueWithContext(ctx context.Context) (*models.ConsumerPolicy, error) {
 	pq.mu.RLock()
 	defer pq.mu.RUnlock()
 
@@ -219,7 +221,7 @@ func (pp *PolicyProducer) IsActive() bool {
 }
 
 // ProducePolicy creates and enqueues a single policy
-func (pp *PolicyProducer) ProducePolicy(policy *ConsumerPolicy) error {
+func (pp *PolicyProducer) ProducePolicy(policy *models.ConsumerPolicy) error {
 	pp.mu.RLock()
 	defer pp.mu.RUnlock()
 
@@ -238,7 +240,7 @@ func (pp *PolicyProducer) ProducePolicy(policy *ConsumerPolicy) error {
 }
 
 // ProducePoliciesBatch creates and enqueues multiple policies
-func (pp *PolicyProducer) ProducePoliciesBatch(policies []*ConsumerPolicy) error {
+func (pp *PolicyProducer) ProducePoliciesBatch(policies []*models.ConsumerPolicy) error {
 	pp.mu.RLock()
 	defer pp.mu.RUnlock()
 
@@ -279,11 +281,11 @@ type PolicyConsumer struct {
 	errors    int64
 	ctx       context.Context
 	cancel    context.CancelFunc
-	processFn func(*ConsumerPolicy) error
+	processFn func(*models.ConsumerPolicy) error
 }
 
 // NewPolicyConsumer creates a new policy consumer
-func NewPolicyConsumer(queue *PolicyQueue, processFn func(*ConsumerPolicy) error) *PolicyConsumer {
+func NewPolicyConsumer(queue *PolicyQueue, processFn func(*models.ConsumerPolicy) error) *PolicyConsumer {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PolicyConsumer{
 		queue:     queue,

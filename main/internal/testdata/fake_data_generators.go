@@ -1,20 +1,23 @@
-package main
+package testdata
 
 import (
 	"fmt"
 	"math/rand"
 	"time"
+
+	"pairingSystem/internal/models"
+	"pairingSystem/internal/storage"
 )
 
 // FakeDataGenerator generates fake providers and policies for testing
 type FakeDataGenerator struct {
-	rand *rand.Rand
+	Rand *rand.Rand
 }
 
 // NewFakeDataGenerator creates a new fake data generator
 func NewFakeDataGenerator() *FakeDataGenerator {
 	return &FakeDataGenerator{
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+		Rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -39,37 +42,37 @@ var (
 )
 
 // GenerateRandomProvider generates a random provider with realistic data
-func (fdg *FakeDataGenerator) GenerateRandomProvider() *Provider {
+func (fdg *FakeDataGenerator) GenerateRandomProvider() *models.Provider {
 	// Generate random address
-	prefix := providerAddressPrefixes[fdg.rand.Intn(len(providerAddressPrefixes))]
-	address := fmt.Sprintf("%s_%d_%x", prefix, fdg.rand.Intn(10000), fdg.rand.Uint32())
+	prefix := providerAddressPrefixes[fdg.Rand.Intn(len(providerAddressPrefixes))]
+	address := fmt.Sprintf("%s_%d_%x", prefix, fdg.Rand.Intn(10000), fdg.Rand.Uint32())
 
 	// Generate random stake - weighted towards lower stakes to better match policies
 	// 70% chance of stake between 1000-50000, 30% chance of higher stakes
 	var stake int64
-	if fdg.rand.Float32() < 0.7 {
-		stake = int64(fdg.rand.Intn(49000) + 1000) // 1000-50000
+	if fdg.Rand.Float32() < 0.7 {
+		stake = int64(fdg.Rand.Intn(49000) + 1000) // 1000-50000
 	} else {
-		stake = int64(fdg.rand.Intn(950000) + 50000) // 50000-1000000
+		stake = int64(fdg.Rand.Intn(950000) + 50000) // 50000-1000000
 	}
 
 	// Generate random location
-	location := locations[fdg.rand.Intn(len(locations))]
+	location := locations[fdg.Rand.Intn(len(locations))]
 
 	// Generate random features (3-12 features) - increased minimum to improve matching
-	numFeatures := fdg.rand.Intn(10) + 3
+	numFeatures := fdg.Rand.Intn(10) + 3
 	selectedFeatures := make([]string, 0, numFeatures)
 	usedFeatures := make(map[string]bool)
 
 	for len(selectedFeatures) < numFeatures {
-		feature := features[fdg.rand.Intn(len(features))]
+		feature := features[fdg.Rand.Intn(len(features))]
 		if !usedFeatures[feature] {
 			selectedFeatures = append(selectedFeatures, feature)
 			usedFeatures[feature] = true
 		}
 	}
 
-	return &Provider{
+	return &models.Provider{
 		Address:  address,
 		Stake:    stake,
 		Location: location,
@@ -78,8 +81,8 @@ func (fdg *FakeDataGenerator) GenerateRandomProvider() *Provider {
 }
 
 // GenerateRandomProviders generates multiple random providers
-func (fdg *FakeDataGenerator) GenerateRandomProviders(count int) []*Provider {
-	providers := make([]*Provider, count)
+func (fdg *FakeDataGenerator) GenerateRandomProviders(count int) []*models.Provider {
+	providers := make([]*models.Provider, count)
 	for i := 0; i < count; i++ {
 		providers[i] = fdg.GenerateRandomProvider()
 	}
@@ -87,30 +90,30 @@ func (fdg *FakeDataGenerator) GenerateRandomProviders(count int) []*Provider {
 }
 
 // GenerateRandomPolicy generates a random consumer policy
-func (fdg *FakeDataGenerator) GenerateRandomPolicy() *ConsumerPolicy {
+func (fdg *FakeDataGenerator) GenerateRandomPolicy() *models.ConsumerPolicy {
 	// 50% chance of having a location requirement
 	var requiredLocation string
-	if fdg.rand.Float32() < 0.5 {
-		requiredLocation = locations[fdg.rand.Intn(len(locations))]
+	if fdg.Rand.Float32() < 0.5 {
+		requiredLocation = locations[fdg.Rand.Intn(len(locations))]
 	}
 
 	// Generate random minimum stake (0-25000) - reduced from 50000
-	minStake := int64(fdg.rand.Intn(25000))
+	minStake := int64(fdg.Rand.Intn(25000))
 
 	// Generate random required features (0-3 features) - reduced from 6
-	numFeatures := fdg.rand.Intn(4)
+	numFeatures := fdg.Rand.Intn(4)
 	requiredFeatures := make([]string, 0, numFeatures)
 	usedFeatures := make(map[string]bool)
 
 	for len(requiredFeatures) < numFeatures {
-		feature := features[fdg.rand.Intn(len(features))]
+		feature := features[fdg.Rand.Intn(len(features))]
 		if !usedFeatures[feature] {
 			requiredFeatures = append(requiredFeatures, feature)
 			usedFeatures[feature] = true
 		}
 	}
 
-	return &ConsumerPolicy{
+	return &models.ConsumerPolicy{
 		RequiredLocation: requiredLocation,
 		RequiredFeatures: requiredFeatures,
 		MinStake:         minStake,
@@ -118,8 +121,8 @@ func (fdg *FakeDataGenerator) GenerateRandomPolicy() *ConsumerPolicy {
 }
 
 // GenerateRandomPolicies generates multiple random consumer policies
-func (fdg *FakeDataGenerator) GenerateRandomPolicies(count int) []*ConsumerPolicy {
-	policies := make([]*ConsumerPolicy, count)
+func (fdg *FakeDataGenerator) GenerateRandomPolicies(count int) []*models.ConsumerPolicy {
+	policies := make([]*models.ConsumerPolicy, count)
 	for i := 0; i < count; i++ {
 		policies[i] = fdg.GenerateRandomPolicy()
 	}
@@ -127,39 +130,39 @@ func (fdg *FakeDataGenerator) GenerateRandomPolicies(count int) []*ConsumerPolic
 }
 
 // GenerateSpecificProvider generates a provider with specific characteristics
-func (fdg *FakeDataGenerator) GenerateSpecificProvider(location string, minStake int64, requiredFeatures []string) *Provider {
+func (fdg *FakeDataGenerator) GenerateSpecificProvider(location string, minStake int64, requiredFeatures []string) *models.Provider {
 	// Generate random address
-	prefix := providerAddressPrefixes[fdg.rand.Intn(len(providerAddressPrefixes))]
-	address := fmt.Sprintf("%s_%d_%x", prefix, fdg.rand.Intn(10000), fdg.rand.Uint32())
+	prefix := providerAddressPrefixes[fdg.Rand.Intn(len(providerAddressPrefixes))]
+	address := fmt.Sprintf("%s_%d_%x", prefix, fdg.Rand.Intn(10000), fdg.Rand.Uint32())
 
 	// Use provided location or random
 	if location == "" {
-		location = locations[fdg.rand.Intn(len(locations))]
+		location = locations[fdg.Rand.Intn(len(locations))]
 	}
 
 	// Generate stake equal to or greater than minimum
-	stake := minStake + int64(fdg.rand.Intn(100000))
+	stake := minStake + int64(fdg.Rand.Intn(100000))
 
 	// Include required features plus some random ones
 	allFeatures := make([]string, 0)
 	allFeatures = append(allFeatures, requiredFeatures...)
 
 	// Add some random features
-	numExtraFeatures := fdg.rand.Intn(5)
+	numExtraFeatures := fdg.Rand.Intn(5)
 	usedFeatures := make(map[string]bool)
 	for _, feature := range requiredFeatures {
 		usedFeatures[feature] = true
 	}
 
 	for len(allFeatures)-len(requiredFeatures) < numExtraFeatures {
-		feature := features[fdg.rand.Intn(len(features))]
+		feature := features[fdg.Rand.Intn(len(features))]
 		if !usedFeatures[feature] {
 			allFeatures = append(allFeatures, feature)
 			usedFeatures[feature] = true
 		}
 	}
 
-	return &Provider{
+	return &models.Provider{
 		Address:  address,
 		Stake:    stake,
 		Location: location,
@@ -168,8 +171,8 @@ func (fdg *FakeDataGenerator) GenerateSpecificProvider(location string, minStake
 }
 
 // GenerateMatchingProviders generates providers that match a specific policy
-func (fdg *FakeDataGenerator) GenerateMatchingProviders(policy *ConsumerPolicy, count int) []*Provider {
-	providers := make([]*Provider, count)
+func (fdg *FakeDataGenerator) GenerateMatchingProviders(policy *models.ConsumerPolicy, count int) []*models.Provider {
+	providers := make([]*models.Provider, count)
 	for i := 0; i < count; i++ {
 		providers[i] = fdg.GenerateSpecificProvider(
 			policy.RequiredLocation,
@@ -181,8 +184,8 @@ func (fdg *FakeDataGenerator) GenerateMatchingProviders(policy *ConsumerPolicy, 
 }
 
 // GenerateDistributedProviders generates providers distributed across locations
-func (fdg *FakeDataGenerator) GenerateDistributedProviders(totalCount int) []*Provider {
-	providers := make([]*Provider, 0, totalCount)
+func (fdg *FakeDataGenerator) GenerateDistributedProviders(totalCount int) []*models.Provider {
+	providers := make([]*models.Provider, 0, totalCount)
 	locationsCount := len(locations)
 
 	// Distribute providers across locations
@@ -200,29 +203,29 @@ func (fdg *FakeDataGenerator) GenerateDistributedProviders(totalCount int) []*Pr
 }
 
 // GenerateHighStakeProviders generates providers with high stakes
-func (fdg *FakeDataGenerator) GenerateHighStakeProviders(count int) []*Provider {
-	providers := make([]*Provider, count)
+func (fdg *FakeDataGenerator) GenerateHighStakeProviders(count int) []*models.Provider {
+	providers := make([]*models.Provider, count)
 	for i := 0; i < count; i++ {
 		provider := fdg.GenerateRandomProvider()
 		// Set high stake (500000 to 1000000)
-		provider.Stake = int64(fdg.rand.Intn(500000) + 500000)
+		provider.Stake = int64(fdg.Rand.Intn(500000) + 500000)
 		providers[i] = provider
 	}
 	return providers
 }
 
 // GenerateFeatureRichProviders generates providers with many features
-func (fdg *FakeDataGenerator) GenerateFeatureRichProviders(count int) []*Provider {
-	providers := make([]*Provider, count)
+func (fdg *FakeDataGenerator) GenerateFeatureRichProviders(count int) []*models.Provider {
+	providers := make([]*models.Provider, count)
 	for i := 0; i < count; i++ {
 		provider := fdg.GenerateRandomProvider()
 		// Set many features (15-20 features)
-		numFeatures := fdg.rand.Intn(6) + 15
+		numFeatures := fdg.Rand.Intn(6) + 15
 		selectedFeatures := make([]string, 0, numFeatures)
 		usedFeatures := make(map[string]bool)
 
 		for len(selectedFeatures) < numFeatures && len(selectedFeatures) < len(features) {
-			feature := features[fdg.rand.Intn(len(features))]
+			feature := features[fdg.Rand.Intn(len(features))]
 			if !usedFeatures[feature] {
 				selectedFeatures = append(selectedFeatures, feature)
 				usedFeatures[feature] = true
@@ -236,14 +239,14 @@ func (fdg *FakeDataGenerator) GenerateFeatureRichProviders(count int) []*Provide
 }
 
 // GenerateStrictPolicy generates a policy with strict requirements
-func (fdg *FakeDataGenerator) GenerateStrictPolicy() *ConsumerPolicy {
+func (fdg *FakeDataGenerator) GenerateStrictPolicy() *models.ConsumerPolicy {
 	// Generate 2-4 unique features instead of 5 potentially duplicate ones
-	numFeatures := fdg.rand.Intn(3) + 2 // 2-4 features
+	numFeatures := fdg.Rand.Intn(3) + 2 // 2-4 features
 	selectedFeatures := make([]string, 0, numFeatures)
 	usedFeatures := make(map[string]bool)
 
 	for len(selectedFeatures) < numFeatures {
-		feature := features[fdg.rand.Intn(len(features))]
+		feature := features[fdg.Rand.Intn(len(features))]
 		if !usedFeatures[feature] {
 			selectedFeatures = append(selectedFeatures, feature)
 			usedFeatures[feature] = true
@@ -251,26 +254,26 @@ func (fdg *FakeDataGenerator) GenerateStrictPolicy() *ConsumerPolicy {
 	}
 
 	// Reduce minimum stake to more reasonable levels
-	return &ConsumerPolicy{
-		RequiredLocation: locations[fdg.rand.Intn(len(locations))],
+	return &models.ConsumerPolicy{
+		RequiredLocation: locations[fdg.Rand.Intn(len(locations))],
 		RequiredFeatures: selectedFeatures,
-		MinStake:         int64(fdg.rand.Intn(30000) + 5000), // 5000-35000 instead of 20000-100000
+		MinStake:         int64(fdg.Rand.Intn(30000) + 5000), // 5000-35000 instead of 20000-100000
 	}
 }
 
 // GenerateRelaxedPolicy generates a policy with relaxed requirements
-func (fdg *FakeDataGenerator) GenerateRelaxedPolicy() *ConsumerPolicy {
-	return &ConsumerPolicy{
+func (fdg *FakeDataGenerator) GenerateRelaxedPolicy() *models.ConsumerPolicy {
+	return &models.ConsumerPolicy{
 		RequiredLocation: "", // No location requirement
 		RequiredFeatures: []string{
-			features[fdg.rand.Intn(len(features))],
+			features[fdg.Rand.Intn(len(features))],
 		},
-		MinStake: int64(fdg.rand.Intn(5000)),
+		MinStake: int64(fdg.Rand.Intn(5000)),
 	}
 }
 
 // PopulateProviderStorage populates provider storage with fake data
-func (fdg *FakeDataGenerator) PopulateProviderStorage(storage *ProviderStorage, count int) {
+func (fdg *FakeDataGenerator) PopulateProviderStorage(storage *storage.ProviderStorage, count int) {
 	// Generate distributed providers
 	distributedProviders := fdg.GenerateDistributedProviders(count / 2)
 	for _, provider := range distributedProviders {
@@ -291,14 +294,14 @@ func (fdg *FakeDataGenerator) PopulateProviderStorage(storage *ProviderStorage, 
 }
 
 // GenerateTestScenario generates a complete test scenario
-func (fdg *FakeDataGenerator) GenerateTestScenario() (*ProviderStorage, []*ConsumerPolicy) {
-	storage := NewProviderStorage()
+func (fdg *FakeDataGenerator) GenerateTestScenario() (*storage.ProviderStorage, []*models.ConsumerPolicy) {
+	storage := storage.NewProviderStorage()
 
 	// Populate with 100 providers
 	fdg.PopulateProviderStorage(storage, 100)
 
 	// Generate various policies
-	policies := make([]*ConsumerPolicy, 0)
+	policies := make([]*models.ConsumerPolicy, 0)
 
 	// Add strict policies
 	for i := 0; i < 5; i++ {
@@ -328,8 +331,8 @@ func (fdg *FakeDataGenerator) GetAvailableFeatures() []string {
 }
 
 // GenerateRealisticWorkload generates a realistic workload for testing
-func (fdg *FakeDataGenerator) GenerateRealisticWorkload(providerCount, policyCount int) (*ProviderStorage, []*ConsumerPolicy) {
-	storage := NewProviderStorage()
+func (fdg *FakeDataGenerator) GenerateRealisticWorkload(providerCount, policyCount int) (*storage.ProviderStorage, []*models.ConsumerPolicy) {
+	storage := storage.NewProviderStorage()
 
 	// Generate realistic provider distribution
 	// 40% distributed across locations
@@ -361,7 +364,7 @@ func (fdg *FakeDataGenerator) GenerateRealisticWorkload(providerCount, policyCou
 	}
 
 	// Generate realistic policy distribution
-	policies := make([]*ConsumerPolicy, 0, policyCount)
+	policies := make([]*models.ConsumerPolicy, 0, policyCount)
 
 	// 30% strict policies
 	strictCount := int(float64(policyCount) * 0.3)

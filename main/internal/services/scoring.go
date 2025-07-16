@@ -1,9 +1,11 @@
-package main
+package services
 
 import (
 	"fmt"
 	"math"
 	"sort"
+
+	"pairingSystem/internal/models"
 )
 
 // ScoreComponent represents a component of the scoring system
@@ -50,7 +52,7 @@ func (ss *ScoringSystem) SetWeights(stake, location, feature float64) error {
 }
 
 // initializeNormalization calculates min/max values for normalization
-func (ss *ScoringSystem) initializeNormalization(providers []*Provider) {
+func (ss *ScoringSystem) initializeNormalization(providers []*models.Provider) {
 	if len(providers) == 0 {
 		ss.maxStake = 1000000 // Default max stake
 		ss.minStake = 0
@@ -79,7 +81,7 @@ func (ss *ScoringSystem) initializeNormalization(providers []*Provider) {
 }
 
 // calculateStakeScore calculates normalized stake score (0-1)
-func (ss *ScoringSystem) calculateStakeScore(provider *Provider) float64 {
+func (ss *ScoringSystem) calculateStakeScore(provider *models.Provider) float64 {
 	if !ss.initialized {
 		return 0.5 // Default score if not initialized
 	}
@@ -104,7 +106,7 @@ func (ss *ScoringSystem) calculateStakeScore(provider *Provider) float64 {
 }
 
 // calculateLocationScore calculates location match score (0-1)
-func (ss *ScoringSystem) calculateLocationScore(provider *Provider, policy *ConsumerPolicy) float64 {
+func (ss *ScoringSystem) calculateLocationScore(provider *models.Provider, policy *models.ConsumerPolicy) float64 {
 	if policy.RequiredLocation == "" {
 		return 1.0 // No location requirement, full score
 	}
@@ -119,7 +121,7 @@ func (ss *ScoringSystem) calculateLocationScore(provider *Provider, policy *Cons
 }
 
 // calculateFeatureScore calculates feature completeness score (0-1)
-func (ss *ScoringSystem) calculateFeatureScore(provider *Provider, policy *ConsumerPolicy) float64 {
+func (ss *ScoringSystem) calculateFeatureScore(provider *models.Provider, policy *models.ConsumerPolicy) float64 {
 	if len(policy.RequiredFeatures) == 0 {
 		return 1.0 // No feature requirements, full score
 	}
@@ -153,7 +155,7 @@ func (ss *ScoringSystem) calculateFeatureScore(provider *Provider, policy *Consu
 }
 
 // ScoreProvider calculates a comprehensive score for a provider
-func (ss *ScoringSystem) ScoreProvider(provider *Provider, policy *ConsumerPolicy, allProviders []*Provider) *PairingScore {
+func (ss *ScoringSystem) ScoreProvider(provider *models.Provider, policy *models.ConsumerPolicy, allProviders []*models.Provider) *models.PairingScore {
 	if !ss.initialized {
 		ss.initializeNormalization(allProviders)
 	}
@@ -179,7 +181,7 @@ func (ss *ScoringSystem) ScoreProvider(provider *Provider, policy *ConsumerPolic
 		"final":    finalScore,
 	}
 
-	return &PairingScore{
+	return &models.PairingScore{
 		Provider:   provider,
 		Score:      finalScore,
 		Components: components,
@@ -187,9 +189,9 @@ func (ss *ScoringSystem) ScoreProvider(provider *Provider, policy *ConsumerPolic
 }
 
 // RankProviders scores and ranks all providers according to the policy
-func (ss *ScoringSystem) RankProviders(providers []*Provider, policy *ConsumerPolicy) []*PairingScore {
+func (ss *ScoringSystem) RankProviders(providers []*models.Provider, policy *models.ConsumerPolicy) []*models.PairingScore {
 	if len(providers) == 0 {
-		return []*PairingScore{}
+		return []*models.PairingScore{}
 	}
 
 	// Initialize normalization if needed
@@ -198,7 +200,7 @@ func (ss *ScoringSystem) RankProviders(providers []*Provider, policy *ConsumerPo
 	}
 
 	// Score all providers
-	scores := make([]*PairingScore, len(providers))
+	scores := make([]*models.PairingScore, len(providers))
 	for i, provider := range providers {
 		scores[i] = ss.ScoreProvider(provider, policy, providers)
 	}
@@ -212,7 +214,7 @@ func (ss *ScoringSystem) RankProviders(providers []*Provider, policy *ConsumerPo
 }
 
 // GetTopProviders returns the top N providers after ranking
-func (ss *ScoringSystem) GetTopProviders(providers []*Provider, policy *ConsumerPolicy, n int) []*Provider {
+func (ss *ScoringSystem) GetTopProviders(providers []*models.Provider, policy *models.ConsumerPolicy, n int) []*models.Provider {
 	scores := ss.RankProviders(providers, policy)
 
 	// Limit to requested number
@@ -220,7 +222,7 @@ func (ss *ScoringSystem) GetTopProviders(providers []*Provider, policy *Consumer
 		n = len(scores)
 	}
 
-	result := make([]*Provider, n)
+	result := make([]*models.Provider, n)
 	for i := 0; i < n; i++ {
 		result[i] = scores[i].Provider
 	}
@@ -229,7 +231,7 @@ func (ss *ScoringSystem) GetTopProviders(providers []*Provider, policy *Consumer
 }
 
 // GetScoringStats returns statistics about the scoring distribution
-func (ss *ScoringSystem) GetScoringStats(providers []*Provider, policy *ConsumerPolicy) map[string]interface{} {
+func (ss *ScoringSystem) GetScoringStats(providers []*models.Provider, policy *models.ConsumerPolicy) map[string]interface{} {
 	scores := ss.RankProviders(providers, policy)
 
 	if len(scores) == 0 {
