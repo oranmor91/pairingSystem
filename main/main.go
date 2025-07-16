@@ -3,127 +3,309 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 )
 
 func main() {
 	fmt.Println("=== Lava Network Provider Pairing System ===")
-	fmt.Println("Initializing system components...")
+	fmt.Println("🚀 Starting continuous pairing system...")
+	fmt.Println("   Press Ctrl+C to stop gracefully")
+
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Initialize fake data generator
 	generator := NewFakeDataGenerator()
 
-	// Generate realistic workload
-	fmt.Println("\n1. Generating realistic workload...")
-	providerStorage, policies := generator.GenerateRealisticWorkload(200, 50)
+	// Generate initial realistic workload
+	fmt.Println("\n1. Generating initial workload...")
+	providerStorage, initialPolicies := generator.GenerateRealisticWorkload(200, 0) // Start with 0 policies
 
 	fmt.Printf("✓ Generated %d providers across %d locations\n",
 		providerStorage.GetProviderCount(),
 		len(providerStorage.GetLocationStats()))
-	fmt.Printf("✓ Generated %d consumer policies\n", len(policies))
 
-	// Display provider distribution
-	fmt.Println("\n2. Provider Distribution by Location:")
-	locationStats := providerStorage.GetLocationStats()
-	for location, count := range locationStats {
-		fmt.Printf("   %s: %d providers\n", location, count)
-	}
+	// Display initial provider distribution
+	fmt.Println("\n2. Initial Provider Distribution by Location:")
+	displayProviderDistribution(providerStorage)
 
 	// Initialize pairing system
 	fmt.Println("\n3. Initializing Pairing System...")
-	pairingSystem := NewDefaultPairingSystem(providerStorage, 50)
+	pairingSystem := NewDefaultPairingSystem(providerStorage, 100)
 
-	//	Test queue-based processing
-	fmt.Println("\n4. Testing Queue-Based Processing...")
-	testQueueBasedProcessing(providerStorage, policies)
+	// Initialize queue-based processing system
+	fmt.Println("\n4. Starting Continuous Queue-Based Processing...")
+	queueSystem := NewConcurrentPairingSystem(providerStorage, 5, 100) // 5 workers, 100 queue capacity
 
-	// Display comprehensive statistics
-	fmt.Println("\n5. System Statistics:")
-	displaySystemStats(pairingSystem)
-
-	fmt.Println("\n=== System Demonstration Complete ===")
-}
-
-func testQueueBasedProcessing(storage *ProviderStorage, policies []*ConsumerPolicy) {
-	fmt.Println("   Creating queue-based processing system...")
-
-	// Create concurrent system
-	queueSystem := NewConcurrentPairingSystem(storage, 3, 50)
-
-	// Start the system
+	// Start the queue system
 	err := queueSystem.Start()
 	if err != nil {
-		fmt.Printf("   ❌ Failed to start queue system: %v\n", err)
-		return
+		log.Fatalf("❌ Failed to start queue system: %v", err)
 	}
 	defer queueSystem.Stop()
 
-	fmt.Println("   ✓ Queue system started with 3 workers")
+	fmt.Println("✓ Queue system started with 5 workers")
 
-	// Enqueue policies
-	fmt.Println("   Enqueuing policies for processing...")
-	startTime := time.Now()
+	// Start continuous processing
+	fmt.Println("\n5. Starting Continuous Processing...")
 
-	err = queueSystem.EnqueuePolicies(policies[:15])
-	if err != nil {
-		fmt.Printf("   ❌ Error enqueuing policies: %v\n", err)
-		return
+	// Channel to coordinate shutdown
+	shutdownChan := make(chan struct{})
+
+	// Start continuous policy generation
+	go continuousPolicyGeneration(generator, queueSystem, shutdownChan)
+
+	// Start continuous provider generation
+	go continuousProviderGeneration(generator, providerStorage, shutdownChan)
+
+	// Start periodic statistics display
+	go periodicStatsDisplay(queueSystem, pairingSystem, providerStorage, shutdownChan)
+
+	// Start periodic results display
+	go periodicResultsDisplay(queueSystem, shutdownChan)
+
+	// Initial policies to get started
+	if len(initialPolicies) > 0 {
+		err = queueSystem.EnqueuePolicies(initialPolicies[:min(10, len(initialPolicies))])
+		if err != nil {
+			fmt.Printf("⚠️  Warning: Failed to enqueue initial policies: %v\n", err)
+		}
 	}
 
-	fmt.Printf("   ✓ Enqueued %d policies\n", 15)
+	fmt.Println("\n🔄 System running continuously...")
+	fmt.Println("   - Generating policies every 2 seconds")
+	fmt.Println("   - Adding providers every 10 seconds")
+	fmt.Println("   - Displaying stats every 30 seconds")
+	fmt.Println("   - Displaying results every 15 seconds")
 
-	// Wait for processing
-	fmt.Println("   Waiting for processing to complete...")
+	// Wait for shutdown signal
+	<-sigChan
+	fmt.Println("\n\n🛑 Shutdown signal received, stopping gracefully...")
+
+	// Signal all goroutines to stop
+	close(shutdownChan)
+
+	// Give some time for cleanup
 	time.Sleep(2 * time.Second)
 
-	// Get results
-	results := queueSystem.GetResults()
-	processingTime := time.Since(startTime)
+	// Display final statistics
+	fmt.Println("\n📊 Final Statistics:")
+	displaySystemStats(pairingSystem)
 
-	fmt.Printf("   ✓ Retrieved %d results in %v\n", len(results), processingTime)
+	finalResults := queueSystem.GetResults()
+	fmt.Printf("\n📋 Final Results Count: %d\n", len(finalResults))
 
-	// Print each result with clear formatting
-	fmt.Println("   Results:")
-	for i, result := range results {
-		fmt.Printf("\n   📋 Result %d:\n", i+1)
+	fmt.Println("\n✅ System stopped gracefully")
+}
 
-		// Display Policy Information
-		fmt.Printf("      Policy Details:\n")
-		fmt.Printf("        Required Location: %s\n", result.Policy.RequiredLocation)
-		fmt.Printf("        Required Features: %v\n", result.Policy.RequiredFeatures)
-		fmt.Printf("        Min Stake: %d\n", result.Policy.MinStake)
+// continuousPolicyGeneration generates policies continuously
+func continuousPolicyGeneration(generator *FakeDataGenerator, queueSystem *ConcurrentPairingSystem, shutdown <-chan struct{}) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
-		// Display Processing Statistics
-		fmt.Printf("      Processing Stats:\n")
-		fmt.Printf("        Filtered Count: %d\n", result.FilteredCount)
-		fmt.Printf("        Ranked Count: %d\n", result.RankedCount)
-		fmt.Printf("        Processing Time: %v\n", result.ProcessingTime)
+	policyCount := 0
 
-		// Display Top Providers
-		fmt.Printf("      Top Providers (%d found):\n", len(result.TopProviders))
-		if len(result.TopProviders) == 0 {
-			fmt.Printf("        ❌ No providers found matching criteria\n")
-		} else {
-			for j, provider := range result.TopProviders {
-				fmt.Printf("        %d. Address: %s\n", j+1, provider.Address)
-				fmt.Printf("           Stake: %d\n", provider.Stake)
-				fmt.Printf("           Location: %s\n", provider.Location)
-				fmt.Printf("           Features: %v\n", provider.Features)
-				if j < len(result.TopProviders)-1 {
-					fmt.Printf("           ---\n")
+	for {
+		select {
+		case <-shutdown:
+			fmt.Println("🔄 Policy generation stopped")
+			return
+		case <-ticker.C:
+			// Generate 1-3 policies
+			numPolicies := generator.rand.Intn(3) + 1
+			policies := make([]*ConsumerPolicy, numPolicies)
+
+			for i := 0; i < numPolicies; i++ {
+				// 40% relaxed, 30% strict, 30% random
+				rand := generator.rand.Float32()
+				if rand < 0.4 {
+					policies[i] = generator.GenerateRelaxedPolicy()
+				} else if rand < 0.7 {
+					policies[i] = generator.GenerateStrictPolicy()
+				} else {
+					policies[i] = generator.GenerateRandomPolicy()
+				}
+			}
+
+			err := queueSystem.EnqueuePolicies(policies)
+			if err != nil {
+				fmt.Printf("⚠️  Warning: Failed to enqueue policies: %v\n", err)
+			} else {
+				policyCount += numPolicies
+				if policyCount%10 == 0 {
+					fmt.Printf("🔄 Generated %d policies so far...\n", policyCount)
 				}
 			}
 		}
+	}
+}
 
-		// Display any errors
-		if result.Error != nil {
-			fmt.Printf("      ❌ Error: %v\n", result.Error)
+// continuousProviderGeneration adds providers continuously
+func continuousProviderGeneration(generator *FakeDataGenerator, storage *ProviderStorage, shutdown <-chan struct{}) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-shutdown:
+			fmt.Println("🔄 Provider generation stopped")
+			return
+		case <-ticker.C:
+			// Add 5-15 new providers
+			numProviders := generator.rand.Intn(11) + 5
+
+			for i := 0; i < numProviders; i++ {
+				// 50% random, 30% high stake, 20% feature rich
+				rand := generator.rand.Float32()
+				var provider *Provider
+
+				if rand < 0.5 {
+					provider = generator.GenerateRandomProvider()
+				} else if rand < 0.8 {
+					provider = generator.GenerateRandomProvider()
+					provider.Stake = int64(generator.rand.Intn(500000) + 500000) // High stake
+				} else {
+					provider = generator.GenerateRandomProvider()
+					// Add more features
+					allFeatures := generator.GetAvailableFeatures()
+					numFeatures := generator.rand.Intn(10) + 10 // 10-20 features
+					selectedFeatures := make([]string, 0, numFeatures)
+					usedFeatures := make(map[string]bool)
+
+					for _, existing := range provider.Features {
+						usedFeatures[existing] = true
+					}
+
+					for len(selectedFeatures) < numFeatures && len(selectedFeatures) < len(allFeatures) {
+						feature := allFeatures[generator.rand.Intn(len(allFeatures))]
+						if !usedFeatures[feature] {
+							selectedFeatures = append(selectedFeatures, feature)
+							usedFeatures[feature] = true
+						}
+					}
+					provider.Features = selectedFeatures
+				}
+
+				storage.AddProvider(provider)
+			}
+
+			fmt.Printf("🔄 Added %d new providers (Total: %d)\n", numProviders, storage.GetProviderCount())
 		}
 	}
+}
 
-	// Display queue statistics
-	queueStats := queueSystem.GetQueueStats()
-	fmt.Printf("   📊 Queue stats: %v\n", queueStats)
+// periodicStatsDisplay displays system statistics periodically
+func periodicStatsDisplay(queueSystem *ConcurrentPairingSystem, pairingSystem *DefaultPairingSystem, storage *ProviderStorage, shutdown <-chan struct{}) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-shutdown:
+			fmt.Println("🔄 Statistics display stopped")
+			return
+		case <-ticker.C:
+			fmt.Println("\n" + strings.Repeat("=", 60))
+			fmt.Printf("📊 PERIODIC STATISTICS - %s\n", time.Now().Format("15:04:05"))
+			fmt.Println(strings.Repeat("=", 60))
+
+			// Display provider distribution
+			fmt.Println("\n🌍 Provider Distribution:")
+			displayProviderDistribution(storage)
+
+			// Display system stats
+			fmt.Println("\n⚙️  System Statistics:")
+			displaySystemStats(pairingSystem)
+
+			// Display queue stats
+			queueStats := queueSystem.GetQueueStats()
+			fmt.Printf("\n📋 Queue Statistics: %v\n", queueStats)
+
+			fmt.Println(strings.Repeat("=", 60))
+		}
+	}
+}
+
+// periodicResultsDisplay displays processing results periodically
+func periodicResultsDisplay(queueSystem *ConcurrentPairingSystem, shutdown <-chan struct{}) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-shutdown:
+			fmt.Println("🔄 Results display stopped")
+			return
+		case <-ticker.C:
+			results := queueSystem.GetResults()
+			if len(results) > 0 {
+				fmt.Printf("\n📋 Processing Results (%d new results):\n", len(results))
+
+				// Display only the first 3 results to avoid spam
+				maxDisplay := min(3, len(results))
+				for i := 0; i < maxDisplay; i++ {
+					result := results[i]
+					fmt.Printf("\n   📋 Result %d:\n", i+1)
+
+					// Display Policy Information
+					fmt.Printf("      Policy: %s, Features: %v, MinStake: %d\n",
+						result.Policy.RequiredLocation,
+						result.Policy.RequiredFeatures,
+						result.Policy.MinStake)
+
+					// Display Processing Statistics
+					fmt.Printf("      Stats: %d filtered, %d ranked, %v processing time\n",
+						result.FilteredCount,
+						result.RankedCount,
+						result.ProcessingTime)
+
+					// Display Top Providers
+					if len(result.TopProviders) > 0 {
+						fmt.Printf("      Top Providers (%d found):\n", len(result.TopProviders))
+						for j, provider := range result.TopProviders {
+							fmt.Printf("        %d. %s (Stake: %d, Location: %s)\n",
+								j+1, provider.Address, provider.Stake, provider.Location)
+							if j >= 2 { // Show max 3 providers
+								break
+							}
+						}
+					} else {
+						fmt.Printf("      ❌ No providers found\n")
+					}
+
+					// Display any errors
+					if result.Error != nil {
+						fmt.Printf("      ❌ Error: %v\n", result.Error)
+					}
+				}
+
+				if len(results) > maxDisplay {
+					fmt.Printf("   ... and %d more results\n", len(results)-maxDisplay)
+				}
+			}
+		}
+	}
+}
+
+// displayProviderDistribution displays provider distribution by location
+func displayProviderDistribution(storage *ProviderStorage) {
+	locationStats := storage.GetLocationStats()
+	for location, count := range locationStats {
+		fmt.Printf("   %s: %d providers\n", location, count)
+	}
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func displaySystemStats(pairingSystem *DefaultPairingSystem) {
